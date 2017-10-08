@@ -17,12 +17,11 @@ The goals / steps of this project are the following:
 [//]: # (Image References)
 [image0]: ./output_images/car.png
 [image1]: ./output_images/not_car.png
-[image2]: ./output_images/HOG_example.jpg
-[image3]: ./output_images/sliding_windows.jpg
-[image4]: ./output_images/sliding_window.jpg
-[image5]: ./output_images/bboxes_and_heat.png
-[image6]: ./output_images/labels_map.png
-[image7]: ./output_images/output_bboxes.png
+[image2]: ./output_images/.jpg
+[image3]: ./output_images/.jpg
+[image5]: ./output_images/.png
+[image6]: ./output_images/.png
+[image7]: ./output_images/.png
 [video1]: ./project_video_out.mp4
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/513/view) Points
@@ -68,20 +67,30 @@ I also saved the trained classifier to a pickle file so I don't have to train it
 
 ####1. Describe how (and identify where in your code) you implemented a sliding window search.  How did you decide what scales to search and how much to overlap windows?
 
-For the sliding windows I used the in the lessons provided function `find_cars`. The scales for the windows I chose by experiment and looking at the window sizes in the test images. I thereby chose the scales [1,2,3,4] since they seemed to cover all the scales of cars in the video. I didn't changed the overlap of the windows from the implementation in the lessons because it seemed not necessary.
+For the sliding windows I used the in the lessons provided function `find_cars`. The scales for the windows I chose by experiment and looking at the window sizes in the test images. I thereby chose the scales [1,2,3,4] since they seemed to cover all the scales of cars in the video. I chose the overlap to be 75%. This also was also optained experimentally.
 
 ####2. Show some examples of test images to demonstrate how your pipeline is working.  What did you do to optimize the performance of your classifier?
+
+The pipeline first loads a frame from the video. Then slides windows over the defined areas of the image. Here are the scales with the corresponding ymin and ymax values:
+[(1.0, 400, 528), (2.0, 384, 576), (3.0, 360, 700), (4.0, 380, 720)]
+In x dimension the whole image was searched all the time.
+
+Each window was classified with the LinearSVM classifier and if the prediction was positive, the corresponding window was added to the heatmap image.
+This image was thesholded for values bigger than 2.4. The resulting image is the final heat map.
+
+For smoothing the the video frames I included the thresholded heatmap from the previous frame to the unthresholded heat map of the current frame with a ratio of 1:1. So both frames contribute the same way to the final heatmap. 
 
 Ultimately I searched on two scales using HLS 3-channel HOG features with `L1-sqrt` block norm, plus spatially binned color and histograms of color in the feature vector, which provided a nice result.  Here are some example images:
 
 TODO
-![alt text][image4]
+![alt text][image3]
 
 To optimize the performance of my classifier I searched for optimal paramters for the SVM using grid search for linear and rbf kernel SVMs. It was no surprise, that the better SVM classifier had the rbf kernel. During my first gridsearch I also searched for the `C` paramter in [1,..,10]. The best value was `1` so I extended the search to [0.1,...,1] and the best values was still `1`.
 
 However the `best` performing SVM on the training and test data was not the best performing SVM for the project video. I experienced a big gain in presicion (no false positives through out the entire image) but a big drop in recall (only 1 or two subwindows detected a car per frame, even when more than one car was clearly visible.)
 
 Since the prediction of the rbf kernel in the project video contained very few predetions of bounding boxes (usually 1 or 2 in each frame) I fiddled with the parameters to regularise the SVM more. The problem was, that the actual performance of the SVM on the training and test set was not the same as the performance on the test images from the video. That means, that the accuracy gained during training was not helping a lot in determining if the classifier will actually perform good on the video. So I couldn't use a grid search algorithm or similar to evaluate the performance of the classifier, but had to judge the outcome video by my self every time. and tune the parameters by hand. So development speed was very slow. I finally found it easier to use the Linear SVM, that had poorer precision but a better recall, an then deal with the false positives with smoothing.
+
 ---
 
 ### Video Implementation
@@ -96,15 +105,22 @@ I recorded the positions of positive detections in each frame of the video. From
 
 Here's an example result showing the heatmap from a series of frames of video, the result of `scipy.ndimage.measurements.label()` and the bounding boxes then overlaid on the last frame of video:
 
-### Here are six frames and their corresponding heatmaps:
+### Here is one frames and it's corresponding heatmap:
 
-TODO
+frame:
+![alt text][image3]
+
+the thesholded heatmap looks like this:
+
 ![alt text][image5]
 
 ### Here is the output of `scipy.ndimage.measurements.label()` on the integrated heatmap from all six frames:
 
 TODO
 ![alt text][image6]
+
+
+Here is the thresholded heatmap:
 
 ### Here the resulting bounding boxes:
 ![alt text][image7]
