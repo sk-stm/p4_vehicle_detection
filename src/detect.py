@@ -1,7 +1,7 @@
 import argparse
 import logging
 import matplotlib as mpl
-mpl.use('TkAgg')
+mpl.use('Agg')
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,7 +13,7 @@ from lesson_functions import *
 
 class Detector(object):
 
-    def __init__(self, svc, data_scaler, orient, pix_per_cell, cells_per_block, spatial_size, hist_bins, color_conv, cells_per_step):
+    def __init__(self, svc, data_scaler, orient, pix_per_cell, cells_per_block, spatial_size, hist_bins, color_conv, cells_per_step, use_spatial_feat):
         self.svc = svc
         self.data_scaler = data_scaler
         self.orient = orient
@@ -23,6 +23,14 @@ class Detector(object):
         self.hist_bins = hist_bins
         self.color_conv = color_conv
         self.cells_per_step = cells_per_step
+        self.tracking = False
+        self.use_spatial_feat = use_spatial_feat
+
+        self.detection_state = {
+            'car_ids': 0,
+            'heat_map': np.array([0]),
+            'detections': []
+        }
 
     def find_cars(self, img, scale, y_start, y_end):
         detections = []
@@ -69,15 +77,19 @@ class Detector(object):
                 # Extract the image patch
                 subimg = cv2.resize(ctrans_tosearch[ytop:ytop+window, xleft:xleft+window], (64,64))
             
-                # Get color features
-                spatial_features = bin_spatial(subimg, size=self.spatial_size)
+                # Get spatial features
+                spatial_features = np.array([]).reshape(-1)
+                if self.use_spatial_feat:
+                    bin_spatial(subimg, size=self.spatial_size)
+                
+                # Get histogram features
                 hist_features = color_hist(subimg, nbins=self.hist_bins)
 
                 # Scale features and make a prediction
-                test_features = self.data_scaler.transform(np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1))    
-                #test_features = X_scaler.transform(np.hstack((shape_feat, hist_feat)).reshape(1, -1))    
+                test_features = np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1)
+                test_features = self.data_scaler.transform(test_features)  
                 test_prediction = self.svc.predict(test_features)
-                
+
                 if test_prediction == 1:
                     xbox_left = np.int(xleft*scale)
                     ytop_draw = np.int(ytop*scale)
@@ -97,7 +109,13 @@ class Detector(object):
             # Assuming each "box" takes the form ((x1, y1), (x2, y2))
             heatmap[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
         
-       
+        cv2.imshow("raw heatmap (normalized)", heatmap / np.max(heatmap))
+        
+        
+        # merge in last detections
+        if self.tracking and (self.detection_state['heat_map'].shape[0] != 0):
+            heatmap = 0.6 * heatmap + 0.4 * self.detection_state['heat_map']
+            cv2.imshow("merged heatmap (normalized)", heatmap / np.max(heatmap))
 
         # Zero out pixels below the threshold
         heatmap[heatmap <= threshold] = 0
@@ -114,11 +132,17 @@ class Detector(object):
             bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
             filtered_detections.append(bbox)
 
-        cv2.imshow("heatmap (thresholded)", heatmap / np.max(heatmap))
+        cv2.imshow("thresholded heatmap (normalized)", heatmap / np.max(heatmap))
+
+        # safe state
+        if self.tracking:
+            self.detection_state['heat_map'] = heatmap
+        
         return filtered_detections
 
 def process_image(img, scales, detector):
     # convert image data
+    assert img.dtype == np.uint8 and np.max(img) > 1
     img = img.astype(np.float32)/255
     assert img.dtype == np.float32 and np.max(img) <= 1.0
 
@@ -131,13 +155,47 @@ def process_image(img, scales, detector):
     logging.info("Got %i raw detections.", len(detections))
     
     debug_img = draw_boxes(img, detections)
-    cv2.imshow("raw_detections", debug_img)
+    cv2.imshow("raw detections", debug_img)
 
     # non maximum suppression and filtering
-    filtered_detections = detector.non_maximum_suppression(img, detections, 1)
+    filtered_detections = detector.non_maximum_suppression(img, detections, threshold=2.2)
     logging.info("Got %i filtered detections.", len(filtered_detections))
-    debug_img = draw_boxes(img, filtered_detections)
-    cv2.imshow("filtered_detections", debug_img)
+
+
+    # assign detection IDs
+    assigned_detections = []
+
+    if not detector.tracking:
+        assigned_detections = [(i, bb) for i, bb in enumerate(detections)]
+    else:
+        while len(filtered_detections):
+            new_bb = filtered_detections.pop()
+
+            match = False
+            for i in range(len(detector.detection_state['detections'])):
+                id, old_bb = detector.detection_state['detections'][i]
+                # compute IoU
+                iou = bb_intersection_over_union(new_bb, old_bb)
+                if iou > 0.5:
+                    match = True
+                    assigned_detections.append((id, new_bb))
+                    del detector.detection_state['detections'][i] 
+                    break
+
+            if not match:
+                new_id = detector.detection_state['car_ids']
+                detector.detection_state['car_ids'] += 1
+                new_detection = (new_id, new_bb)
+                assigned_detections.append(new_detection)
+        
+        # apply the merged detections
+        detector.detection_state['detections'] = assigned_detections
+
+    
+    debug_img = draw_detections(img, assigned_detections)
+
+
+    cv2.imshow("filtered detections", debug_img)
 
     cv2.waitKey(1)
 
@@ -157,25 +215,32 @@ def main(args):
     color_conv = dist_pickle["color_conv"]
     spatial_size = dist_pickle["spatial_size"]
     hist_bins = dist_pickle["hist_bins"]
+    use_spatial_feat =  dist_pickle["spatial_feat"]
 
     cells_per_step = 1
+    scales = [(1.0, 400, 528), (1.5, 390, 560), (2.0, 384, 576), (3.0, 360, 700), (4.0, 380, 720)]
+    input_file = args['input']
+    assert type(input_file) is str
+    is_video = input_file.endswith('mp4')
 
     # init detector
-    detector = Detector(svc, data_scaler, orient, pix_per_cell, cells_per_block, spatial_size, hist_bins, color_conv, cells_per_step)
+    detector = Detector(svc, data_scaler, orient, pix_per_cell, cells_per_block, spatial_size, hist_bins, color_conv, cells_per_step, use_spatial_feat)
 
-
-    from moviepy.editor import VideoFileClip
-    clip = VideoFileClip("project_video.mp4")
-    #img = mpimg.imread('test_images/test1.jpg')
-
-    #scales = [(0.5, 400, 464), (0.75, 400, 496), (1.0, 400, 528), (2.0, 384, 576), (3.0, 360, 700), (4.0, 380, 720)]
-    scales = [(1.0, 400, 528), (2.0, 384, 576), (3.0, 360, 700), (4.0, 380, 720)]
-    white_clip = clip.fl_image(lambda img : process_image(img, scales, detector))
-    white_clip.write_videofile("project_video_out.mp4", audio=False)
-    
-    #process_image(img, scales, detector)
+    if is_video:
+        from moviepy.editor import VideoFileClip
+        clip = VideoFileClip(input_file)
+        clip = clip.set_fps(1.)
+        #clip = clip.subclip(22., 30.)
         
-
+        detector.tracking = True
+        
+        white_clip = clip.fl_image(lambda img : process_image(img, scales, detector))
+        output_file = input_file[:-4] + "_out" + input_file[-4:]
+        output_file = output_file.split("/")[-1]
+        white_clip.write_videofile("output_images/" + output_file, audio=False)
+    else:
+        img = mpimg.imread('test_images/test1.jpg')
+        process_image(img, scales, detector)
 
 
 if __name__ == '__main__':
@@ -183,6 +248,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--pickle_file', type=str, default="svc_pickle.p")
+    parser.add_argument('--input', type=str, default="test_video.mp4")
 
     args = vars(parser.parse_args())
     main(args)

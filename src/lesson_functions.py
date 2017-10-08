@@ -158,3 +158,38 @@ def draw_boxes(img, bboxes, color=(0, 0, 1.0), thick=4):
         cv2.rectangle(imcopy, bbox[0], bbox[1], color, thick)
     # Return the image copy with boxes drawn
     return imcopy
+
+def draw_detections(img, detections, color=(0, 0, 1.0)):
+    bboxes = [bb for (id, bb) in detections]
+    debug_img = draw_boxes(img, bboxes, color)
+
+    for (id, bb) in detections:
+        cv2.rectangle(debug_img, bb[0], (bb[0][0] + 35, bb[0][1] + 30), color, -1)
+        org = (bb[0][0] + 5, bb[0][1] + 20)
+        cv2.putText(debug_img, str(id), org, cv2.FONT_HERSHEY_SIMPLEX, 0.8, (1, 1, 1), 2)
+
+    return debug_img
+
+# shamelessly stolen from https://www.pyimagesearch.com/2016/11/07/intersection-over-union-iou-for-object-detection/
+def bb_intersection_over_union(boxA, boxB):
+    # determine the (x, y)-coordinates of the intersection rectangle
+    xA = max(boxA[0][0], boxB[0][0])
+    yA = max(boxA[0][1], boxB[0][1])
+    xB = min(boxA[1][0], boxB[1][0])
+    yB = min(boxA[1][1], boxB[1][1])
+ 
+    # compute the area of intersection rectangle
+    interArea = (xB - xA + 1) * (yB - yA + 1)
+ 
+    # compute the area of both the prediction and ground-truth
+    # rectangles
+    boxAArea = (boxA[1][0] - boxA[0][0] + 1) * (boxA[1][1] - boxA[0][1] + 1)
+    boxBArea = (boxB[1][0] - boxB[0][0] + 1) * (boxB[1][1] - boxB[0][1] + 1)
+ 
+    # compute the intersection over union by taking the intersection
+    # area and dividing it by the sum of prediction + ground-truth
+    # areas - the interesection area
+    iou = interArea / float(boxAArea + boxBArea - interArea)
+ 
+    # return the intersection over union value
+    return iou

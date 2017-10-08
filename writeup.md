@@ -1,5 +1,4 @@
-##Writeup Template
-###You can use this file as a template for your writeup if you want to submit it as a markdown file, but feel free to use some other method and submit a pdf if you prefer.
+## Writeup for: P4 Vehicle Detection
 
 ---
 
@@ -17,22 +16,29 @@ The goals / steps of this project are the following:
 [//]: # (Image References)
 [image0]: ./output_images/car.png
 [image1]: ./output_images/not_car.png
-[image2]: ./output_images/.jpg
-[image3]: ./output_images/.jpg
+[image_hog0]: ./output_images/hog_ch_0.png
+[image_hog1]: ./output_images/hog_ch_1.png
+[image_hog2]: ./output_images/hog_ch_2.png
+[image_pipeline1]: ./output_images/raw_input.png
+[image_pipeline2]: ./output_images/raw_detections.png
+[image_pipeline3]: ./output_images/heatmap_raw.png
+[image_pipeline4]: ./output_images/heatmap_merged.png
+[image_pipeline5]: ./output_images/heatmap_merged_thresholded.png
+[image_pipeline6]: ./output_images/filtered_detections.png
 [image5]: ./output_images/.png
 [image6]: ./output_images/.png
 [image7]: ./output_images/.png
-[video1]: ./project_video_out.mp4
+[video1]: ./output_images/project_video_out.mp4
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/513/view) Points
-###Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
+### Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
 
 ---
-###Writeup
+### Writeup
 
-###Histogram of Oriented Gradients (HOG)
+### Histogram of Oriented Gradients (HOG)
 
-####1. Explain how (and identify where in your code) you extracted HOG features from the training images.
+#### 1. Explain how (and identify where in your code) you extracted HOG features from the training images.
 
 The code for this step is contained in the `get_hog_features` function in the lesson_functions.py.
 
@@ -46,95 +52,118 @@ and `non-vehicle` classes:
 
 I then explored different color spaces and different `skimage.hog()` parameters (`orientations`, `pixels_per_cell`, and `cells_per_block`).  I grabbed random images from each of the two classes and displayed them to get a feel for what the `skimage.hog()` output looks like.
 
-Here is an example using the `HSL` color space and HOG parameters of `orientations=9`, `pixels_per_cell=(16, 16)` and `cells_per_block=(3, 3)`:
+Here is an example using the `YCrCb` color space and HOG parameters of `orientations=9`, `pixels_per_cell=(16, 16)` and `cells_per_block=(3, 3)`, showing a sub-region of a frame from the project video:
 
-TODO:
-![alt text][image2]
+**Y-Channel**
 
-####2. Explain how you settled on your final choice of HOG parameters.
+![image_hog0]
 
-I tried various combinations of parameters and startet with low values (orientation=4, pixels_per_Cell=4, cells_per_block=2). I then gradually increased the values separately and trained the classifier, while keeping the classifier parameters fixed. I experienced an increase in accuracy. I increased the values until the accuracy started to decrease again.
+**Cr-Channel**
 
-####3. Describe how (and identify where in your code) you trained a classifier using your selected HOG features (and color features if you used them).
+![image_hog1]
 
-I trained a linear SVM using the full data set of `cars` and `not cars` from https://s3.amazonaws.com/udacity-sdc/Vehicle_Tracking/vehicles.zip and https://s3.amazonaws.com/udacity-sdc/Vehicle_Tracking/non-vehicles.zip respectively. I used the scikit learn `fit` function to fit my parameterised algorithm to the training data. For prediction i use the `predict` function of that classifier.
+**Cb-Channel**
 
-This is done in the `train_classifier` function in my train.py.
+![image_hog2]
 
-I also saved the trained classifier to a pickle file so I don't have to train it all the time I want to detect and classify cars in an image. This is done at the end of the `main` function in my train.py.
 
-###Sliding Window Search
+#### 2. Explain how you settled on your final choice of HOG parameters.
 
-####1. Describe how (and identify where in your code) you implemented a sliding window search.  How did you decide what scales to search and how much to overlap windows?
+I tried various combinations of parameters and startet with low values (`orientation=4`, `pixels_per_Cell=4`, `cells_per_block=2`). I then gradually increased the values separately and trained the classifier, while keeping the classifier parameters fixed. I experienced an increase in accuracy. I increased the values until the accuracy started to decrease again. Finally, I choose the `L1-sqrt` block norm, as it resulted in a better test accuracy.
 
-For the sliding windows I used the in the lessons provided function `find_cars`. The scales for the windows I chose by experiment and looking at the window sizes in the test images. I thereby chose the scales [1,2,3,4] since they seemed to cover all the scales of cars in the video. I chose the overlap to be 75%. This also was also optained experimentally.
+#### 3. Describe how (and identify where in your code) you trained a classifier using your selected HOG features (and color features if you used them).
 
-####2. Show some examples of test images to demonstrate how your pipeline is working.  What did you do to optimize the performance of your classifier?
+I trained n using the full data set you provided ([vehicle](https://s3.amazonaws.com/udacity-sdc/Vehicle_Tracking/vehicles.zip) and [non-vehicle](https://s3.amazonaws.com/udacity-sdc/Vehicle_Tracking/non-vehicles.zip)). I used the scikit learn `fit` function to fit my parameterised algorithm to the training data. For prediction i use the `predict` function of that classifier. This is done in the `train_classifier` function in my train.py.
 
-The pipeline first loads a frame from the video. Then slides windows over the defined areas of the image. Here are the scales with the corresponding ymin and ymax values:
-[(1.0, 400, 528), (2.0, 384, 576), (3.0, 360, 700), (4.0, 380, 720)]
-In x dimension the whole image was searched all the time.
+I also saved the trained classifier to a pickle file so I don't have to train it all the time when playing with the detection-part of the pipeline. This is done at the end of the `main` function in train.py.
 
-Each window was classified with the LinearSVM classifier and if the prediction was positive, the corresponding window was added to the heatmap image.
-This image was thesholded for values bigger than 2.4. The resulting image is the final heat map.
 
-For smoothing the the video frames I included the thresholded heatmap from the previous frame to the unthresholded heat map of the current frame with a ratio of 1:1. So both frames contribute the same way to the final heatmap. 
+### Sliding Window Search
 
-Ultimately I searched on two scales using HLS 3-channel HOG features with `L1-sqrt` block norm, plus spatially binned color and histograms of color in the feature vector, which provided a nice result.  Here are some example images:
+#### 1. Describe how (and identify where in your code) you implemented a sliding window search.  How did you decide what scales to search and how much to overlap windows?
 
-TODO
-![alt text][image3]
+For the sliding windows I used a customized version of the  `find_cars`-function that you suggested in the lesson. The scales for the windows were chosen empirically and looking at the window sizes in the test images. I thereby chose the scales [1,1.5,2,3,4] since they seemed to cover all the scales of cars in the video. I chose the overlap to be 75% which also was obtained empirically.
 
-To optimize the performance of my classifier I searched for optimal paramters for the SVM using grid search for linear and rbf kernel SVMs. It was no surprise, that the better SVM classifier had the rbf kernel. During my first gridsearch I also searched for the `C` paramter in [1,..,10]. The best value was `1` so I extended the search to [0.1,...,1] and the best values was still `1`.
+#### 2. Show some examples of test images to demonstrate how your pipeline is working.  What did you do to optimize the performance of your classifier?
+
+The pipeline first loads a frame from the video and then slides windows with different scale over the defined areas of the image. Here are the scales with the corresponding y-min and y-max values (read: (scale, y-min, y-max)):
+[(1.0, 400, 528), (2.0, 384, 576), (3.0, 360, 700), (4.0, 380, 720)]. In x-dimension the whole image was searched all the time.
+
+For each sampled window, the fetures were computed identical to the ones while training. The resultig feature vector was then classified with the SVM classifier and if the prediction was positive, the corresponding window-rectangle was added to a heatmap image. This image was then thesholded (parameter determined empirically). The resulting image is the final heat map.
+
+For smoothing the the detections, I merged the heatmap of the current detections with the (thresholded) heatmap of the previous frame with a certain ratio (parameter determined empirically). This reduced the number of single-frame false positives but also stabilized correct detections over time.
+
+Here are some example images from different steps of the pipeline:
+
+**input image**
+
+![image_pipeline1]
+
+**raw detections**
+
+![image_pipeline2]
+
+**raw heatmap**
+
+![image_pipeline3]
+
+**merged heatmap**
+
+![image_pipeline4]
+
+**thresholded heatmap**
+
+![image_pipeline5]
+
+**final detections**
+
+![image_pipeline6]
+
+To optimize the performance of my classifier I searched for optimal paramters of the SVM using grid search for linear and rbf kernel SVMs. It was no surprise, that the the rbf kernel resulted in better accuracy. During my first gridsearch I also searched for the `C` paramter in [1,..,10]. The best value was `1` so I extended the search to [0.1,...,1] and the best values was still `1`.
 
 However the `best` performing SVM on the training and test data was not the best performing SVM for the project video. I experienced a big gain in presicion (no false positives through out the entire image) but a big drop in recall (only 1 or two subwindows detected a car per frame, even when more than one car was clearly visible.)
 
-Since the prediction of the rbf kernel in the project video contained very few predetions of bounding boxes (usually 1 or 2 in each frame) I fiddled with the parameters to regularise the SVM more. The problem was, that the actual performance of the SVM on the training and test set was not the same as the performance on the test images from the video. That means, that the accuracy gained during training was not helping a lot in determining if the classifier will actually perform good on the video. So I couldn't use a grid search algorithm or similar to evaluate the performance of the classifier, but had to judge the outcome video by my self every time. and tune the parameters by hand. So development speed was very slow. I finally found it easier to use the Linear SVM, that had poorer precision but a better recall, an then deal with the false positives with smoothing.
+Since the prediction of the rbf kernel in the project video contained very few predetions of bounding boxes (usually 1 or 2 in each frame) I fiddled with the parameters to regularise the SVM more. The problem was, that the actual performance of the SVM on the training and test set was not the same as the performance on the test images from the video. That means, that the accuracy gained during training was not helping a lot in determining if the classifier will actually perform good on the video. So I couldn't use a grid search algorithm or similar to evaluate the performance of the classifier, but had to judge the outcome video by my self every time, and tune the parameters by hand. So development speed was very slow. I finally found it easier to use the Linear SVM, that had poorer precision but a better recall, an then deal with the false positives with smoothing and thresholding.
 
 ---
 
 ### Video Implementation
 
-####1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (somewhat wobbly or unstable bounding boxes are ok as long as you are identifying the vehicles most of the time with minimal false positives.)
+#### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (somewhat wobbly or unstable bounding boxes are ok as long as you are identifying the vehicles most of the time with minimal false positives.)
 Here's a [link to my video result](./project_video_out.mp4)
 
 
-####2. Describe how (and identify where in your code) you implemented some kind of filter for false positives and some method for combining overlapping bounding boxes.
+#### 2. Describe how (and identify where in your code) you implemented some kind of filter for false positives and some method for combining overlapping bounding boxes.
 
-I recorded the positions of positive detections in each frame of the video. From the positive detections I created a heatmap and then thresholded that map to identify vehicle positions.  I then used `scipy.ndimage.measurements.label()` to identify individual blobs in the heatmap.  I then assumed each blob corresponded to a vehicle.  I constructed bounding boxes to cover the area of each blob detected.
+I recorded the positions of positive detections in each frame of the video. From the positive detections I created a heatmap and then thresholded that map to identify vehicle positions. `scipy.ndimage.measurements.label()` was used to identify individual blobs in the heatmap. I assumed that each blob corresponded to a vehicle. Finally I constructed bounding boxes to cover the area of each blob detected. Also the heatmap was merged with the one from the previous frame, as described above. You'll find the filtering in the `non_maximum_suppression` method.
 
-Here's an example result showing the heatmap from a series of frames of video, the result of `scipy.ndimage.measurements.label()` and the bounding boxes then overlaid on the last frame of video:
 
 ### Here is one frames and it's corresponding heatmap:
 
 frame:
-![alt text][image3]
+![alt text][image_pipeline1]
 
 the thesholded heatmap looks like this:
 
-![alt text][image5]
-
-### Here is the output of `scipy.ndimage.measurements.label()` on the integrated heatmap from all six frames:
-
-TODO
-![alt text][image6]
-
-
-Here is the thresholded heatmap:
+![alt text][image_pipeline5]
 
 ### Here the resulting bounding boxes:
-![alt text][image7]
+![alt text][image_pipeline6]
 
 ---
 
-###Discussion
+### Discussion
 
-####1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+#### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-A big issue durign this project was the parameter serach for a "well performing" SVM. Since the data set was very indiverse, a SVM with a high test accuracy was not necessarily good enough to sufficiently predict cars in the test- and project video. It was easier to use a linear SVM with a higher recall value and then use heat map smoothing accross the frames instead of optimising the paramters of the rbf-kernel SVM. 
+A big issue durign this project was the parameter search for a "well performing" SVM. Since the data set was very indiverse, an SVM with a high test accuracy was not necessarily predicting cars in the test- and project video with a satisfying precision/recal. It was easier to use an SVM with a higher recall value and then use heat map smoothing accross the frames instead of optimising the paramters of the rbf-kernel SVM. 
 
-That also means that the prediction will definetely become better if the training set would become mor diverse and bigger since more examples will benefit the prediction. Also other prediction algorithms like `Decision Trees` could be used. But in the end everything comes down to parameter tuning to get better and better performance with this pipeline.
+That also means that the prediction will definetely become better if the training set would become more diverse and bigger since more examples will benefit the prediction. Also other prediction algorithms like `Decision Trees` could be used. But in the end everything comes down to parameter tuning to get better and better performance with this pipeline.
 
 Finally the algorithm doesn't work very well on images, that are different from what the classifier has seen from in the training data. Also I was very suppried how much "visual accuracy" one can gain with a good smoothing algorithm.
 
-Currently each new appearing car in the scene will get another id. One could also increase the id assignment if each "blob" was also traced with a kalman filter to detect the same car again after it was covered by another car.
+Currently each new appearing car in the scene will get another id. One could also increase the id assignment if each "blob" was also traced and tracked with a bayes filter (e.g. Kalman) with suitable motion-model.
+
+As seen while the black car overtakes the white one, detections will merge if two vehicle overlap. Occlusion is next to impossible to overcome with the current pipeline. To solve this, the classifier could be trained on car-parts only, along with an offset-vector to the car's center. This would result in a General Hough pipeline. Alternatively, (r)RCNNs could help ..
+
+Finally, Studient Gradient Descent is always a pain. Instead of selecting features by hand, one could should compute all of the common features and then use a Random Forest in order to select the most useful ones
